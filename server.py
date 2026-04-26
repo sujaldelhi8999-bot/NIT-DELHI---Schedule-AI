@@ -33,7 +33,7 @@ else:
 
 # Hardcoded fallback key (OpenRouter)
 if not os.environ.get("OPENROUTER_API_KEY"):
-    os.environ["OPENROUTER_API_KEY"] = "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"
+    os.environ["OPENROUTER_API_KEY"] = "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"
     print("[AI] Using hardcoded fallback OPENROUTER_API_KEY")
 
 SECRET_KEY = "timetable-secret-2026-xK9mP"
