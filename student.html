@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Student Portal — ScheduleAI Wizarding</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Cinzel+Decorative:wght@700&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet" />
+  
+  <link rel="stylesheet" href="css/styles.css?v=hp2" />
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <div class="sidebar-brand-icon">
+      <svg viewBox="0 0 18 18" fill="none" stroke="#fff" stroke-width="1.8"><rect x="1" y="1" width="16" height="16" rx="3"/><line x1="1" y1="6.5" x2="17" y2="6.5"/><line x1="6.5" y1="1" x2="6.5" y2="17"/></svg>
+    </div>
+    <div><div class="sidebar-brand-name">ScheduleAI</div><div class="sidebar-brand-sub">Student Portal ⚡</div></div>
+  </div>
+  <ul class="sidebar-nav">
+    <li class="nav-section-label">Views</li>
+    <li class="nav-item active" data-page="my-timetable">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      <span>My Timetable</span>
+    </li>
+    <li class="nav-item" data-page="faculty-view">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+      <span>Faculty Timetable</span>
+    </li>
+    <li class="nav-item" data-page="full-timetable">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      <span>All Sections</span>
+    </li>
+    <li class="nav-section-label">System</li>
+    <li class="nav-item" data-page="notifications">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+      <span>Notifications</span>
+    </li>
+  </ul>
+  <div class="sidebar-footer" id="sidebarFooter"></div>
+</aside>
+
+<main class="main-content">
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div><p class="loading-text">Summoning your schedule…</p>
+  </div>
+  <div class="page active" id="page-my-timetable"></div>
+  <div class="page" id="page-faculty-view"></div>
+  <div class="page" id="page-full-timetable"></div>
+  <div class="page" id="page-notifications"></div>
+</main>
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="js/api.js"></script><script src="js/data.js"></script><script src="js/export.js"></script><script src="js/utils.js"></script>
+<script src="js/health-score.js"></script>
+<script src="js/ai-assistant.js"></script>
+
+<script>
+const SampleData = { load(){} };
+let ME = null;
+const AVATAR_COLORS = ['#4448c5','#0f9161','#d63b50','#c47d0e','#8b48c7','#0891b2'];
+
+const App = (() => {
+  const SUBJ_COLORS=10;
+  let colorMap={},colorIdx=0;
+  function getColor(cid){ if(!colorMap[cid]){colorIdx++;colorMap[cid]=((colorIdx-1)%SUBJ_COLORS)+1;}return colorMap[cid]; }
+  function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function showLoadingError(msg) {
+    const overlay = document.getElementById('loadingOverlay');
+    if(!overlay) return;
+    const sp = overlay.querySelector('.spinner');
+    const tx = overlay.querySelector('.loading-text');
+    if(sp) sp.style.visibility = 'hidden';
+    if(tx) tx.innerHTML = msg;
+  }
+  function hideLoading() {
+    const _lo = document.getElementById('loadingOverlay');
+    if(_lo){ _lo.classList.add('hidden'); setTimeout(()=>{ if(_lo.parentNode) _lo.remove(); }, 400); }
+  }
+
+  async function init(){
+    try {
+      const token=API.getToken(),user=API.getUser();
+      if(!token||!user||user.role!=='student'){ window.location.href='login.html'; return; }
+
+      // API.me() is now offline-safe — falls back to cached user if server is down
+      try{ ME=await API.me(); } catch(e){ ME=user; }
+      if(!ME){ window.location.href='login.html'; return; }
+
+      const color=AVATAR_COLORS[ME.name.charCodeAt(0)%AVATAR_COLORS.length];
+      const offlineBadge=API.isOffline()?'<span style="font-size:.65rem;opacity:.6"> (offline)</span>':'';
+      document.getElementById('sidebarFooter').innerHTML=`<div class="user-card"><div class="user-avatar" style="background:${color}">${ME.name.charAt(0).toUpperCase()}</div><div style="flex:1;min-width:0"><div class="user-name">${esc(ME.name)}</div><div class="user-role">Student${offlineBadge}</div></div><button class="btn-logout" onclick="App.logout()" title="Sign out"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg></button></div>`;
+
+      // pullAll is offline-safe — skips silently if server not running
+      await API.pullAll();
+      document.querySelectorAll('.nav-item[data-page]').forEach(item=>{ item.addEventListener('click',()=>navigate(item.dataset.page)); });
+      renderPage('my-timetable');
+      hideLoading();
+    } catch(e) {
+      console.error('Init error:', e);
+      showLoadingError('⚠️ Something went wrong.<br><small>'+e.message+'</small>');
+      setTimeout(()=>hideLoading(), 2500);
+    }
+  }
+
+  function navigate(page){
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active');
+    const prev=document.querySelector('.page.active');
+    if(prev) prev.classList.remove('active');
+    const next=document.getElementById(`page-${page}`);
+    renderPage(page);
+    // micro-delay so CSS transition triggers properly
+    requestAnimationFrame(()=>{ requestAnimationFrame(()=>{ if(next) next.classList.add('active'); }); });
+  }
+
+  function renderPage(page){
+    switch(page){
+      case 'my-timetable':  renderMyTimetable(); break;
+      case 'faculty-view':  renderFacultyView(); break;
+      case 'full-timetable':renderFullTimetable(); break;
+      case 'notifications': renderNotifications(); break;
+    }
+  }
+
+  function renderGrid(entries,days,slots){
+    let html=`<div class="timetable-wrapper"><div class="timetable-grid" style="grid-template-columns:90px repeat(${slots.length},1fr)">`;
+    html+=`<div class="tt-header" style="border-radius:var(--radius) 0 0 0"></div>`;
+    for(const slot of slots){
+      if(slot.isLunch) html+=`<div class="tt-header lunch-h"><span class="time">Lunch</span><span class="time-end">${slot.start}–${slot.end}</span></div>`;
+      else html+=`<div class="tt-header"><span class="time">${slot.start}</span><span class="time-end">${slot.end}</span></div>`;
+    }
+    for(const day of days){
+      html+=`<div class="tt-day-label">${day.slice(0,3)}</div>`;
+      for(const slot of slots){
+        if(slot.isLunch){ html+=`<div class="tt-cell lunch-slot"><span class="lunch-text">Lunch</span></div>`; continue; }
+        const cellEntries=entries.filter(e=>e.day===day&&slot.idx>=e.slotIdx&&slot.idx<e.slotIdx+(e.requiredSlots||1));
+        if(cellEntries.length>0){
+          const e=cellEntries[0],ci=getColor(e.courseId);
+          const secNames=(e.sectionIds||[]).map(sid=>Store.sections.get(sid)?.name||sid).join('+');
+          const code=Store.courses.get(e.courseId)?.code||e.courseName;
+          html+=`<div class="tt-cell"><div class="tt-block sc-${ci}"><span class="tt-subject">${esc(code)}</span><span class="tt-detail">${esc(e.facultyName)}</span><span class="tt-detail">${esc(e.roomName||'')}${secNames?' · '+esc(secNames):''}</span>${e.type==='lab'?'<span class="tt-lab-tag">Lab</span>':''}</div></div>`;
+        } else { html+=`<div class="tt-cell"></div>`; }
+      }
+    }
+    html+=`</div></div>`; return html;
+  }
+
+  function renderMyTimetable(){
+    const page=document.getElementById('page-my-timetable');
+    const tt=Store.getTimetable(),settings=Store.getSettings();
+    const days=settings.daysOfWeek,slots=Store.computeTimeSlots();
+    const mySections=ME.section_ids||[];
+    if(!tt||!mySections.length){ page.innerHTML=`<div class="page-header"><div><h1>My Timetable</h1></div></div><div class="empty-state"><p>No timetable available yet.</p></div>`; return; }
+    const secNames=mySections.map(sid=>Store.sections.get(sid)?.name||sid).join(', ');
+    const entries=[];
+    for(const d of days)(tt[d]||[]).forEach(e=>{ if((e.sectionIds||[]).some(sid=>mySections.includes(sid))) entries.push(e); });
+    page.innerHTML=`<div class="page-header"><div><h1>My Timetable</h1><p>${esc(secNames)} — ${esc(Store.sections.get(mySections[0])?.semester||'')}</p></div><div class="btn-group"><button class="btn btn-outline btn-sm" id="btnPDF">Export PDF</button><button class="btn btn-outline btn-sm" id="btnXL">Export Excel</button></div></div>${renderGrid(entries,days,slots)}`;
+    document.getElementById('btnPDF').addEventListener('click',()=>Export.exportPDF(`My Timetable - ${secNames}`,tt,e=>(e.sectionIds||[]).some(sid=>mySections.includes(sid))));
+    document.getElementById('btnXL').addEventListener('click',()=>Export.exportExcel(`My Timetable - ${secNames}`,tt,e=>(e.sectionIds||[]).some(sid=>mySections.includes(sid))));
+  }
+
+  function renderFacultyView(){
+    const page=document.getElementById('page-faculty-view');
+    const tt=Store.getTimetable(),mySections=ME.section_ids||[];
+    const settings=Store.getSettings(),days=settings.daysOfWeek,slots=Store.computeTimeSlots();
+    const myFaculty=Store.faculty.getAll().filter(f=>(f.sectionIds||[]).some(sid=>mySections.includes(sid)));
+    if(!tt||!myFaculty.length){ page.innerHTML=`<div class="page-header"><div><h1>Faculty Timetable</h1></div></div><div class="empty-state"><p>No faculty data available.</p></div>`; return; }
+    page.innerHTML=`<div class="page-header"><div><h1>Faculty Timetable</h1><p>View schedules of your teachers.</p></div><div class="btn-group"><button class="btn btn-outline btn-sm" id="btnPDF">Export PDF</button><button class="btn btn-outline btn-sm" id="btnXL">Export Excel</button></div></div><div class="filter-row"><label>Faculty</label><select class="form-control" id="facSel" style="max-width:280px">${myFaculty.map((f,i)=>`<option value="${f.id}"${i===0?' selected':''}>${esc(f.name)}</option>`).join('')}</select></div><div id="facGrid"></div>`;
+    function update(){ const fid=document.getElementById('facSel').value; const entries=[]; for(const d of days)(tt[d]||[]).forEach(e=>{ if(e.facultyId===fid) entries.push(e); }); document.getElementById('facGrid').innerHTML=renderGrid(entries,days,slots); }
+    update();
+    document.getElementById('facSel').addEventListener('change',update);
+    document.getElementById('btnPDF').addEventListener('click',()=>{ const fid=document.getElementById('facSel').value; Export.exportPDF(`Faculty ${Store.faculty.get(fid)?.name||''}`,tt,e=>e.facultyId===fid); });
+    document.getElementById('btnXL').addEventListener('click',()=>{ const fid=document.getElementById('facSel').value; Export.exportExcel(`Faculty ${Store.faculty.get(fid)?.name||''}`,tt,e=>e.facultyId===fid); });
+  }
+
+  function renderFullTimetable(){
+    const page=document.getElementById('page-full-timetable');
+    const tt=Store.getTimetable(),sections=Store.sections.getAll();
+    const settings=Store.getSettings(),days=settings.daysOfWeek,slots=Store.computeTimeSlots();
+    if(!tt||!sections.length){ page.innerHTML=`<div class="page-header"><div><h1>All Sections</h1></div></div><div class="empty-state"><p>No timetable generated yet.</p></div>`; return; }
+    page.innerHTML=`<div class="page-header"><div><h1>All Sections</h1><p>Complete institutional timetable.</p></div><div class="btn-group"><button class="btn btn-outline btn-sm" id="btnPDF">Export PDF</button><button class="btn btn-outline btn-sm" id="btnXL">Export Excel</button></div></div><div class="filter-row"><label>Section</label><select class="form-control" id="fullSec" style="max-width:280px">${sections.map((s,i)=>`<option value="${s.id}"${i===0?' selected':''}>${esc(s.name)}</option>`).join('')}</select></div><div id="fullGrid"></div>`;
+    function update(){ const sid=document.getElementById('fullSec').value; const entries=[]; for(const d of days)(tt[d]||[]).forEach(e=>{ if((e.sectionIds||[]).includes(sid)) entries.push(e); }); document.getElementById('fullGrid').innerHTML=renderGrid(entries,days,slots); }
+    update();
+    document.getElementById('fullSec').addEventListener('change',update);
+    document.getElementById('btnPDF').addEventListener('click',()=>{ const sid=document.getElementById('fullSec').value; Export.exportPDF(`Section ${Store.sections.get(sid)?.name||''}`,tt,e=>(e.sectionIds||[]).includes(sid)); });
+    document.getElementById('btnXL').addEventListener('click',()=>{ const sid=document.getElementById('fullSec').value; Export.exportExcel(`Section ${Store.sections.get(sid)?.name||''}`,tt,e=>(e.sectionIds||[]).includes(sid)); });
+  }
+
+  async function renderNotifications(){
+    const page=document.getElementById('page-notifications');
+    page.innerHTML=`<div class="page-header"><div><h1>Notifications</h1><p>Messages from admin and teachers.</p></div></div><div id="notifList"></div>`;
+    const c=document.getElementById('notifList');
+    c.innerHTML=`<div style="display:flex;justify-content:center;padding:32px"><div class="spinner"></div></div>`;
+    try{
+      const notifs=await API.getNotifications();
+      if(!notifs.length){ c.innerHTML=`<div class="empty-state"><p>No notifications yet.</p></div>`; return; }
+      function classAlertType(title){
+        if(title.startsWith('🚫')) return 'cancelled';
+        if(title.startsWith('🔄')) return 'rescheduled';
+        if(title.startsWith('👤')) return 'ta';
+        return null;
+      }
+      function typeBadge(t){
+        if(t==='cancelled')   return `<span class="notif-type-badge ntb-cancelled">🚫 Cancelled</span>`;
+        if(t==='rescheduled') return `<span class="notif-type-badge ntb-rescheduled">🔄 Rescheduled</span>`;
+        if(t==='ta')          return `<span class="notif-type-badge ntb-ta">👤 TA Assigned</span>`;
+        return '';
+      }
+      c.innerHTML=notifs.map(n=>{
+        const at=classAlertType(n.title);
+        const extraClass=at?` type-${at}`:'';
+        const senderBadge=`<span class="badge ${n.sender_role==='admin'?'badge-warning':'badge-primary'}">${esc(n.sender_role)}</span>`;
+        return `<div class="notif-card${extraClass}">
+          <div class="notif-dot" style="background:${n.sender_role==='admin'?'var(--warning)':at==='cancelled'?'#ef4444':at==='rescheduled'?'#3b82f6':at==='ta'?'#10b981':'var(--indigo-500)'}"></div>
+          <div class="notif-body">
+            <div class="notif-title">${esc(n.title)}</div>
+            <div class="notif-msg">${esc(n.message)}</div>
+            <div class="notif-meta">${typeBadge(at)}${senderBadge}<span class="notif-time">${esc(n.sender_name)} · ${new Date(n.created_at).toLocaleString()}</span></div>
+          </div>
+        </div>`;
+      }).join('');
+    } catch{ c.innerHTML=`<div class="conflict-item error">Failed to load notifications.</div>`; }
+  }
+
+  const TOAST_ICONS={success:'✓',error:'✕',info:'i',warning:'!'};
+  function toast(msg,type='info'){
+    const c=document.getElementById('toastContainer'),el=document.createElement('div');
+    el.className=`toast ${type}`;el.innerHTML=`<div class="toast-icon">${TOAST_ICONS[type]||'i'}</div><span>${esc(msg)}</span>`;
+    c.appendChild(el);
+    setTimeout(()=>{el.style.opacity='0';el.style.transform='translateX(24px)';el.style.transition='all .25s';setTimeout(()=>el.remove(),280);},3200);
+  }
+  function logout(){ API.clearToken(); window.location.href='login.html'; }
+  document.addEventListener('DOMContentLoaded',init);
+  return { navigate, logout, toast };
+})();
+</script>
+
+<!-- AI ASSISTANT FLOATING BUTTON (teacher/student) -->
+<div id="aiFab" style="position:fixed;bottom:28px;right:28px;z-index:9000">
+  <button id="aiFabBtn" title="Ask AI about your schedule"
+    style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#6264A7,#8b5cf6);
+           color:#fff;border:none;cursor:pointer;box-shadow:0 4px 18px rgba(98,100,167,.45);
+           display:flex;align-items:center;justify-content:center;font-size:1.3rem;
+           transition:transform .2s,box-shadow .2s">🤖</button>
+</div>
+
+<div id="aiChatDrawer" style="
+  position:fixed;bottom:92px;right:28px;z-index:8999;
+  width:340px;background:var(--bg-primary,#fff);
+  border:1px solid var(--border-color,#e5e7eb);border-radius:16px;
+  box-shadow:0 8px 40px rgba(0,0,0,.18);
+  display:none;flex-direction:column;overflow:hidden;
+  font-family:inherit">
+  <div style="background:linear-gradient(135deg,#6264A7,#8b5cf6);color:#fff;
+              padding:12px 16px;display:flex;align-items:center;justify-content:space-between">
+    <span style="font-weight:600;font-size:.9rem">✨ AI Schedule Assistant</span>
+    <button id="aiDrawerClose" style="background:none;border:none;color:#fff;cursor:pointer;font-size:1.1rem;line-height:1">✕</button>
+  </div>
+  <div id="aiDrawerChat" style="
+    padding:12px;min-height:180px;max-height:300px;overflow-y:auto;
+    display:flex;flex-direction:column;gap:8px;scroll-behavior:smooth">
+    <div class="ai-chat-bubble assistant" style="max-width:100%;font-size:.82rem;padding:8px 12px;border-radius:12px;
+      background:var(--bg-secondary,#f3f4f6);border:1px solid var(--border-color,#e5e7eb)">
+      👋 Ask me anything about your schedule!<br>
+      <em style="font-size:.78rem;color:var(--text-muted,#888)">e.g. "When is my next lab?" or "Which room am I in on Thursday?"</em>
+    </div>
+  </div>
+  <div style="padding:10px;border-top:1px solid var(--border-color,#e5e7eb);display:flex;gap:8px">
+    <input id="aiDrawerInput" type="text" placeholder="Ask about your schedule…"
+      style="flex:1;padding:7px 11px;border:1px solid var(--border-color,#e5e7eb);
+             border-radius:20px;font-size:.82rem;outline:none;background:var(--bg-primary,#fff);
+             color:var(--text-primary,#111)"/>
+    <button id="aiDrawerSend"
+      style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#6264A7,#8b5cf6);
+             color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+        <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<script>
+(function() {
+  const fabBtn     = document.getElementById('aiFabBtn');
+  const drawer     = document.getElementById('aiChatDrawer');
+  const closeBtn   = document.getElementById('aiDrawerClose');
+  const sendBtn    = document.getElementById('aiDrawerSend');
+  const input      = document.getElementById('aiDrawerInput');
+  const chatWin    = document.getElementById('aiDrawerChat');
+  let open = false;
+
+  fabBtn.addEventListener('mouseenter', () => { fabBtn.style.transform='scale(1.1)'; fabBtn.style.boxShadow='0 6px 24px rgba(98,100,167,.6)'; });
+  fabBtn.addEventListener('mouseleave', () => { fabBtn.style.transform=''; fabBtn.style.boxShadow='0 4px 18px rgba(98,100,167,.45)'; });
+
+  fabBtn.addEventListener('click', () => {
+    open = !open;
+    drawer.style.display = open ? 'flex' : 'none';
+    if (open) { drawer.style.flexDirection = 'column'; input.focus(); }
+  });
+  closeBtn.addEventListener('click', () => { open = false; drawer.style.display = 'none'; });
+
+  function appendBubble(text, role) {
+    const el = document.createElement('div');
+    el.style.cssText = 'max-width:90%;padding:7px 11px;border-radius:12px;font-size:.81rem;line-height:1.5;word-break:break-word';
+    if (role === 'user') {
+      el.style.cssText += ';align-self:flex-end;background:linear-gradient(135deg,#6264A7,#8b5cf6);color:#fff;border-bottom-right-radius:3px';
+    } else {
+      el.style.cssText += ';align-self:flex-start;background:var(--bg-secondary,#f3f4f6);border:1px solid var(--border-color,#e5e7eb);border-bottom-left-radius:3px;color:var(--text-primary,#111)';
+    }
+    el.innerHTML = text;
+    chatWin.appendChild(el);
+    chatWin.scrollTop = chatWin.scrollHeight;
+    return el;
+  }
+
+  async function send() {
+    const msg = input.value.trim();
+    if (!msg || typeof AIAssistant === 'undefined') return;
+    input.value = '';
+    appendBubble(msg, 'user');
+    const loadingEl = appendBubble('<em style="color:#888">Thinking…</em>', 'assistant');
+    sendBtn.disabled = true;
+    try {
+      const reply = await AIAssistant.chat(msg);
+      loadingEl.innerHTML = reply.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');
+    } catch(e) {
+      loadingEl.innerHTML = '<span style="color:#e55">Error: ' + e.message + '</span>';
+    } finally {
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  }
+
+  sendBtn.addEventListener('click', send);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); send(); } });
+})();
+</script>
+
+</body>
+</html>

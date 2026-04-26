@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Enter the Great Hall — ScheduleAI</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Cinzel+Decorative:wght@700&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --gold:#c9a84c; --gold-light:#f0d080; --gold-dim:#8a6d20;
+      --crimson:#740001; --navy:#0e1a40; --parchment:#f5e9c8;
+      --smoke:rgba(201,168,76,.12); --danger:#c0392b;
+      --radius:10px; --radius-sm:6px;
+    }
+
+    /* ── Starfield background ── */
+    body {
+      font-family: 'Cinzel', serif;
+      background: #050810;
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Animated stars */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background-image:
+        radial-gradient(1.5px 1.5px at  8%  12%, rgba(201,168,76,.9) 0%, transparent 100%),
+        radial-gradient(1px 1px   at 22%  35%, rgba(255,255,255,.6) 0%, transparent 100%),
+        radial-gradient(2px 2px   at 38%   8%, rgba(201,168,76,.7) 0%, transparent 100%),
+        radial-gradient(1px 1px   at 55%  55%, rgba(255,255,255,.5) 0%, transparent 100%),
+        radial-gradient(1.5px 1.5px at 72%  20%, rgba(201,168,76,.8) 0%, transparent 100%),
+        radial-gradient(1px 1px   at 85%  70%, rgba(255,255,255,.4) 0%, transparent 100%),
+        radial-gradient(2px 2px   at 92%   5%, rgba(201,168,76,.6) 0%, transparent 100%),
+        radial-gradient(1px 1px   at 15%  80%, rgba(255,255,255,.5) 0%, transparent 100%),
+        radial-gradient(1.5px 1.5px at 48%  90%, rgba(201,168,76,.7) 0%, transparent 100%),
+        radial-gradient(1px 1px   at 63%  42%, rgba(255,255,255,.4) 0%, transparent 100%),
+        radial-gradient(1px 1px   at 30%  60%, rgba(201,168,76,.5) 0%, transparent 100%),
+        radial-gradient(2px 2px   at 78%  88%, rgba(255,255,255,.3) 0%, transparent 100%);
+      animation: starsTwinkle 6s ease-in-out infinite alternate;
+    }
+    @keyframes starsTwinkle { from { opacity: .4 } to { opacity: 1 } }
+
+    /* Radial glow at center */
+    body::after {
+      content: '';
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background:
+        radial-gradient(ellipse 70% 60% at 50% 50%, rgba(116,0,1,.08) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 40% at 50% 0%,  rgba(201,168,76,.06) 0%, transparent 60%);
+    }
+
+    .login-wrap { width:100%; max-width:420px; position: relative; z-index: 1; }
+
+    /* Decorative top crest */
+    .hp-crest {
+      text-align: center;
+      margin-bottom: 12px;
+      font-size: 32px;
+      animation: crestFloat 4s ease-in-out infinite;
+      filter: drop-shadow(0 0 14px rgba(201,168,76,.7));
+      color: var(--gold);
+    }
+    @keyframes crestFloat {
+      0%, 100% { transform: translateY(0); }
+      50%       { transform: translateY(-6px); }
+    }
+
+    /* Decorative rule */
+    .hp-rule {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 24px;
+      color: var(--gold-dim);
+      font-size: 11px; letter-spacing: .2em;
+    }
+    .hp-rule::before, .hp-rule::after {
+      content: ''; flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(201,168,76,.5), transparent);
+    }
+
+    .login-card {
+      background: linear-gradient(160deg, #100c1e 0%, #0d1020 60%, #0a0810 100%);
+      border: 1px solid rgba(201,168,76,.3);
+      border-radius: 20px;
+      padding: 36px 32px;
+      box-shadow:
+        0 0 0 1px rgba(201,168,76,.08),
+        0 24px 64px rgba(0,0,0,.7),
+        inset 0 1px 0 rgba(201,168,76,.12);
+      animation: cardIn .5s cubic-bezier(.16,1,.3,1) both;
+      position: relative; overflow: hidden;
+    }
+    /* Inner shimmer */
+    .login-card::before {
+      content: '';
+      position: absolute; top: 0; left: -60%; width: 40%; height: 100%;
+      background: linear-gradient(105deg, transparent, rgba(201,168,76,.04), transparent);
+      animation: shimmerSlide 5s ease-in-out infinite;
+    }
+    @keyframes shimmerSlide { 0% { left: -60% } 100% { left: 160% } }
+
+    @keyframes cardIn { from{opacity:0;transform:translateY(24px) scale(.97)} to{opacity:1;transform:none} }
+
+    .logo { text-align:center; margin-bottom:24px; }
+    .logo-icon {
+      width: 58px; height: 58px;
+      background: linear-gradient(135deg, #700001, #a50002);
+      border-radius: 14px;
+      display: inline-flex; align-items: center; justify-content: center;
+      margin-bottom: 14px;
+      border: 1.5px solid rgba(201,168,76,.4);
+      box-shadow: 0 8px 28px rgba(116,0,1,.5), 0 0 20px rgba(201,168,76,.15);
+    }
+    .logo-icon svg { width:28px; height:28px; }
+    .logo h1 {
+      font-family: 'Cinzel Decorative', serif;
+      font-size: 17px; font-weight: 700;
+      color: var(--gold-light);
+      letter-spacing: .08em;
+      text-shadow: 0 0 24px rgba(201,168,76,.4);
+      line-height: 1.3;
+    }
+    .logo p {
+      font-family: 'IM Fell English', serif;
+      font-style: italic;
+      font-size: 13px; color: rgba(201,168,76,.5); margin-top:6px;
+      letter-spacing: .04em;
+    }
+
+    .form-group { margin-bottom: 16px; }
+    .form-group label {
+      display: block; font-size: 10px; font-weight: 600;
+      color: rgba(201,168,76,.6); margin-bottom: 7px;
+      letter-spacing: .14em; text-transform: uppercase;
+    }
+    .form-control {
+      width: 100%; padding: 10px 14px;
+      background: rgba(255,255,255,.04);
+      border: 1.5px solid rgba(201,168,76,.2);
+      border-radius: var(--radius-sm);
+      color: var(--parchment);
+      font-family: 'IM Fell English', serif;
+      font-size: 14px;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .form-control:focus {
+      outline: none;
+      border-color: rgba(201,168,76,.6);
+      box-shadow: 0 0 0 3px rgba(201,168,76,.1), 0 0 16px rgba(201,168,76,.1);
+    }
+    .form-control::placeholder { color: rgba(201,168,76,.2); font-style: italic; }
+
+    .btn-login {
+      width: 100%; padding: 12px; margin-top: 6px;
+      background: linear-gradient(135deg, #700001, #9e0002);
+      color: var(--gold-light);
+      border: 1px solid rgba(201,168,76,.4);
+      border-radius: var(--radius-sm);
+      font-family: 'Cinzel', serif;
+      font-size: 11px; font-weight: 700;
+      letter-spacing: .14em; text-transform: uppercase;
+      cursor: pointer;
+      box-shadow: 0 2px 12px rgba(116,0,1,.4);
+      transition: all .25s ease;
+      position: relative; overflow: hidden;
+    }
+    .btn-login::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(105deg, transparent 30%, rgba(201,168,76,.12) 50%, transparent 70%);
+      transform: translateX(-100%);
+      transition: transform .6s ease;
+    }
+    .btn-login:hover { background: linear-gradient(135deg, #900002, #c00003); box-shadow: 0 4px 20px rgba(116,0,1,.55), 0 0 12px rgba(201,168,76,.2); }
+    .btn-login:hover::after { transform: translateX(100%); }
+    .btn-login:active { transform: scale(.98); }
+    .btn-login:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    .error-msg {
+      background: rgba(192,57,43,.12);
+      border: 1px solid rgba(192,57,43,.3);
+      border-left: 3px solid var(--danger);
+      color: #e07070;
+      padding: 10px 14px; border-radius: var(--radius-sm);
+      font-family: 'IM Fell English', serif;
+      font-size: 13px; margin-bottom: 16px;
+      display: none; animation: fadeIn .2s ease;
+    }
+    @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+    .error-msg.show { display: flex; align-items: center; gap: 8px; }
+
+    .divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(201,168,76,.25), transparent);
+      margin: 24px 0;
+    }
+
+    .hint {
+      padding: 16px;
+      background: rgba(201,168,76,.04);
+      border: 1px solid rgba(201,168,76,.12);
+      border-radius: var(--radius-sm);
+      font-family: 'IM Fell English', serif;
+      font-size: 12px; color: rgba(201,168,76,.5); line-height: 2;
+    }
+    .hint strong {
+      display: block;
+      font-family: 'Cinzel', serif;
+      font-size: 10px; letter-spacing: .12em;
+      color: rgba(201,168,76,.7); margin-bottom: 6px;
+    }
+    .role-tag {
+      display: inline-flex; align-items: center;
+      padding: 1px 8px; border-radius: 20px;
+      font-family: 'Cinzel', serif;
+      font-size: 9px; font-weight: 700; letter-spacing: .08em;
+      margin-right: 4px;
+    }
+    .r-admin   { background: rgba(116,0,1,.3);    color: #f07070; border: 1px solid rgba(116,0,1,.5); }
+    .r-teacher { background: rgba(14,26,64,.5);   color: #8090d0; border: 1px solid rgba(14,26,64,.8); }
+    .r-student { background: rgba(15,80,25,.3);   color: #60c870; border: 1px solid rgba(15,80,25,.5); }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="hp-crest">⚜</div>
+    <div class="hp-rule">Hogwarts School of Timetabling</div>
+    <div class="login-card">
+      <div class="logo">
+        <div class="logo-icon">
+          <svg viewBox="0 0 26 26" fill="none" stroke="rgba(201,168,76,.9)" stroke-width="1.8">
+            <rect x="2" y="2" width="22" height="22" rx="4"/>
+            <line x1="2" y1="9" x2="24" y2="9"/>
+            <line x1="9" y1="2" x2="9" y2="24"/>
+            <circle cx="5.5" cy="5.5" r="1.5" fill="rgba(201,168,76,.9)" stroke="none"/>
+          </svg>
+        </div>
+        <h1>ScheduleAI</h1>
+        <p>Enter the Great Hall</p>
+      </div>
+
+      <div class="error-msg" id="errorMsg">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span id="errorText"></span>
+      </div>
+
+      <form id="loginForm" autocomplete="on">
+        <div class="form-group">
+          <label for="username">Witch or Wizard Name</label>
+          <input class="form-control" id="username" type="text" placeholder="e.g. harry.potter" autocomplete="username" required />
+        </div>
+        <div class="form-group">
+          <label for="password">Incantation (Password)</label>
+          <input class="form-control" id="password" type="password" placeholder="••••••••" autocomplete="current-password" required />
+        </div>
+        <button class="btn-login" type="submit" id="btnLogin">✦ Cast & Enter ✦</button>
+      </form>
+
+      <div class="divider"></div>
+
+      <div class="hint">
+        <strong>⚡ Spell Book — Default Credentials</strong>
+        <span class="role-tag r-admin">Headmaster</span> admin / admin123<br>
+        <span class="role-tag r-teacher">Professor</span> teacher1 / teacher123<br>
+        <span class="role-tag r-student">Student</span> student_a / student123
+      </div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script>
+    (function(){
+      const user = API.getUser(), token = API.getToken();
+      if(user && token){
+        const p = {admin:'admin.html',teacher:'teacher.html',student:'student.html'};
+        window.location.href = p[user.role] || 'login.html';
+      }
+    })();
+
+    const form = document.getElementById('loginForm');
+    const errMsg = document.getElementById('errorMsg');
+    const errText = document.getElementById('errorText');
+    const btn = document.getElementById('btnLogin');
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      if(!username || !password) return;
+
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+      errMsg.classList.remove('show');
+
+      try{
+        // API.login() is offline-safe — tries server, falls back to mock users
+        const user = await API.login(username, password);
+        const p = {admin:'admin.html',teacher:'teacher.html',student:'student.html'};
+        window.location.href = p[user.role] || 'login.html';
+      } catch(err){
+        errText.textContent = err.message || 'Invalid credentials';
+        errMsg.classList.add('show');
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+        document.getElementById('password').value = '';
+        document.getElementById('password').focus();
+      }
+    });
+  </script>
+</body>
+</html>
