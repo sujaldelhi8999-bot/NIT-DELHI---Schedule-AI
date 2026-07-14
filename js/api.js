@@ -131,6 +131,8 @@ const API = (() => {
         localStorage.setItem('tt_labTypes',  JSON.stringify(data.labTypes  || []));
         localStorage.setItem('tt_settings',  JSON.stringify(data.settings  || {}));
         localStorage.setItem('tt_timetable', JSON.stringify(data.timetable || null));
+        localStorage.setItem('tt_timetable_status', data.timetable ? 'complete' : 'none');
+        localStorage.setItem('tt_revision', String(data.revision || 0));
         localStorage.setItem('tt_locks',     JSON.stringify(data.locks     || []));
         localStorage.setItem('tt_conflicts', JSON.stringify(data.conflicts || []));
         return data;
@@ -140,9 +142,11 @@ const API = (() => {
       }
     },
 
-    async pushAll() {
+    async pushAll(options = {}) {
       if (_offlineMode) return;
       return request('POST', '/api/data/all', {
+        timetableStatus: options.timetableStatus || localStorage.getItem('tt_timetable_status') || 'none',
+        revision: Number(localStorage.getItem('tt_revision') || '0'),
         courses:   JSON.parse(localStorage.getItem('tt_courses')   || '[]'),
         sections:  JSON.parse(localStorage.getItem('tt_sections')  || '[]'),
         faculty:   JSON.parse(localStorage.getItem('tt_faculty')   || '[]'),

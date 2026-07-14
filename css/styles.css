@@ -610,6 +610,13 @@ tbody tr { transition:background var(--t); }
 }
 
 [data-theme="dark"] {
+  --bg:             #162032;
+  --surface:        #1e293b;
+  --surface-2:      #0f172a;
+  --text:           #f1f5f9;
+  --text-faint:     #64748b;
+  --border:         #334155;
+  --border-strong:  #475569;
   --bg-primary:    #0f172a;
   --bg-secondary:  #1e293b;
   --bg-tertiary:   #162032;
@@ -623,6 +630,21 @@ tbody tr { transition:background var(--t); }
 }
 
 [data-theme="dark"] body       { background: var(--bg-tertiary); color: var(--text-primary); }
+[data-theme="dark"] .page-header h1,
+[data-theme="dark"] .page-header p,
+[data-theme="dark"] .card-title,
+[data-theme="dark"] .section-heading,
+[data-theme="dark"] .stat-value,
+[data-theme="dark"] .notif-title,
+[data-theme="dark"] .modal-header h2 {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .page-header p,
+[data-theme="dark"] .section-heading,
+[data-theme="dark"] .stat-label,
+[data-theme="dark"] .notif-msg {
+  color: var(--text-secondary);
+}
 [data-theme="dark"] .sidebar   { background: var(--sidebar-bg); border-right: 1px solid var(--border-color); }
 [data-theme="dark"] .card      { background: var(--card-bg); border-color: var(--border-color); box-shadow: var(--shadow-sm); }
 [data-theme="dark"] .stat-card { background: var(--card-bg); border-color: var(--border-color); }

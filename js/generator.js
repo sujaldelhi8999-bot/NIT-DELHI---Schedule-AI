@@ -4,6 +4,58 @@
 
 const Generator = (() => {
 
+  function conflictFromError(err) {
+    return { type: 'error', code: err.code, message: err.message, entryIds: err.entryIds || [], details: err.details || {} };
+  }
+
+  function validateInputs() {
+    const errors = [];
+    const courses = Store.courses.getAll();
+    const sections = Store.sections.getAll();
+    const faculty = Store.faculty.getAll();
+    const rooms = Store.rooms.getAll();
+    const settings = Store.getSettings();
+    const slots = Store.computeTimeSlots();
+
+    if (!courses.length) errors.push('No courses are configured.');
+    if (!sections.length) errors.push('No sections are configured.');
+    if (!faculty.length) errors.push('No faculty mappings are configured.');
+    if (!rooms.length) errors.push('No rooms are configured.');
+    if (!settings.daysOfWeek || settings.daysOfWeek.length === 0) errors.push('No working days are configured.');
+    if (!slots.length) errors.push('No schedulable periods are available. Check start time, end time, and period duration.');
+
+    const schedulableCourses = courses.filter(c => (c.theoryHours || 0) > 0 || (c.labHours || 0) > 0);
+    if (courses.length && !schedulableCourses.length) errors.push('No courses require scheduled theory or lab sessions.');
+
+    const courseIds = new Set(courses.map(c => c.id));
+    const sectionIds = new Set(sections.map(s => s.id));
+    const combined = Store.combined.getAll();
+    const combinedIds = new Set(combined.map(c => c.id));
+    const mappedCourseIds = new Set();
+
+    for (const fm of faculty) {
+      if (!courseIds.has(fm.courseId)) errors.push(`Faculty mapping for ${fm.name || fm.id} references a missing course.`);
+      mappedCourseIds.add(fm.courseId);
+      if (fm.isCombined) {
+        if (!fm.combinedId || !combinedIds.has(fm.combinedId)) errors.push(`Combined faculty mapping for ${fm.name || fm.id} references a missing combined class.`);
+      } else if (!fm.sectionIds || fm.sectionIds.length === 0) {
+        errors.push(`Faculty mapping for ${fm.name || fm.id} has no assigned sections.`);
+      } else {
+        for (const sid of fm.sectionIds) {
+          if (!sectionIds.has(sid)) errors.push(`Faculty mapping for ${fm.name || fm.id} references missing section ${sid}.`);
+        }
+      }
+    }
+    for (const course of schedulableCourses) {
+      if (!mappedCourseIds.has(course.id)) errors.push(`Course ${course.name || course.code || course.id} has no faculty assignment.`);
+      if ((course.labHours || 0) > 0 && course.labTypeId) {
+        const hasLabRoom = rooms.some(r => r.isLab && r.labTypeId === course.labTypeId);
+        if (!hasLabRoom) errors.push(`Course ${course.name || course.code || course.id} requires a lab type with no matching room.`);
+      }
+    }
+    return errors;
+  }
+
   function buildAssignments() {
     const courses = Store.courses.getAll();
     const sections = Store.sections.getAll();
@@ -414,6 +466,24 @@ const Generator = (() => {
   }
 
   function generate() {
+    const inputErrors = validateInputs();
+    if (inputErrors.length) {
+      const conflicts = inputErrors.map(message => ({ type: 'error', code: 'MISSING_INPUT', message }));
+      return {
+        success: false,
+        status: 'blocked',
+        reason: 'missing_input',
+        errors: inputErrors,
+        timetable: Store.getTimetable(),
+        previewTimetable: null,
+        conflicts,
+        unplaced: [],
+        validation: { valid: false, errors: conflicts, warnings: [] },
+        stats: { total: 0, placed: 0, unplaced: 0, backtrackResolved: 0, greedyUnplaced: 0 },
+        message: 'Generation is blocked until required setup data is complete.',
+      };
+    }
+
     const settings = Store.getSettings();
     const days = settings.daysOfWeek;
     const slots = Store.computeTimeSlots();
@@ -462,12 +532,6 @@ const Generator = (() => {
       });
     }
 
-    const valConflicts = Constraints.validateTimetable(timetable);
-    conflicts.push(...valConflicts);
-
-    Store.saveTimetable(timetable);
-    Store.saveConflicts(conflicts);
-
     const stats = {
       total: assignments.length,
       placed,
@@ -476,11 +540,33 @@ const Generator = (() => {
       greedyUnplaced: greedyUnplaced.length,
     };
 
+    const validation = Constraints.validateTimetable(timetable);
+    conflicts.push(...validation.errors.map(conflictFromError));
+
+    let status = 'complete';
+    let success = true;
+    let message = 'Generation complete.';
+    if (stillUnplaced.length > 0) {
+      status = 'partial';
+      success = false;
+      message = 'Generation produced an incomplete timetable.';
+    } else if (!validation.valid) {
+      status = 'invalid';
+      success = false;
+      message = 'Generation failed validation.';
+    }
+
+    if (success) {
+      localStorage.setItem('tt_timetable_status', 'complete');
+      Store.saveTimetable(timetable);
+      Store.saveConflicts([]);
+    }
+
     // Persist stats so AI Optimizer can read them
     localStorage.setItem('tt_last_stats', JSON.stringify(stats));
 
-    return { timetable, conflicts, stats };
+    return { success, status, timetable: success ? timetable : Store.getTimetable(), previewTimetable: timetable, conflicts, stats, validation, unplaced: stillUnplaced, message };
   }
 
-  return { generate, buildAssignments };
+  return { generate, buildAssignments, validateInputs };
 })();

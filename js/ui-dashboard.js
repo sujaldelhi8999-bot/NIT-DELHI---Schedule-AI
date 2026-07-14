@@ -120,13 +120,13 @@ const UIDashboard = (() => {
         <div id="backupPanel"></div>
       </div>
 
-      <!-- SLOT LOCKS -->
+      <!-- UNAVAILABLE SLOTS -->
       <div class="card" style="margin-top:var(--sp-md)">
         <h3 class="card-title">
           <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="18" height="18"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-          Locked Slots
+          Unavailable Slots
         </h3>
-        <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:var(--sp-md)">Lock specific day/period slots to prevent the generator from assigning classes there.</p>
+        <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:var(--sp-md)">Unavailable slots prevent scheduling during the selected time. They do not force a course into a specific time.</p>
         <div style="display:flex;gap:var(--sp-sm);flex-wrap:wrap;align-items:end">
           <div class="form-group" style="margin:0">
             <label>Day</label>
@@ -138,7 +138,7 @@ const UIDashboard = (() => {
           </div>
           <button class="btn btn-outline btn-sm" id="btnAddLock">
             <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="14" height="14"><path d="M12 5v14M5 12h14"/></svg>
-            Lock
+            Mark Unavailable
           </button>
         </div>
         <div id="locksList" style="margin-top:var(--sp-md)"></div>
@@ -200,19 +200,19 @@ const UIDashboard = (() => {
     const locks = Store.locks.getAll();
     const container = document.getElementById('locksList');
     if (locks.length === 0) {
-      container.innerHTML = '<p style="font-size:.85rem;color:var(--text-muted)">No locked slots.</p>';
+      container.innerHTML = '<p style="font-size:.85rem;color:var(--text-muted)">No unavailable slots.</p>';
       return;
     }
     container.innerHTML = locks.map(l => {
       const slot = Store.computeTimeSlots()[l.slotIdx];
-      return `<span class="lock-item" style="margin:2px;cursor:pointer" onclick="UIDashboard.removeLock('${l.id}')" data-tooltip="Click to remove">${l.day} P${l.slotIdx+1} (${slot?.start || '?'})</span>`;
+      return `<span class="lock-item" style="margin:2px;cursor:pointer" onclick="UIDashboard.removeLock('${l.id}')" data-tooltip="Click to make available again">${l.day} P${l.slotIdx+1} (${slot?.start || '?'})</span>`;
     }).join(' ');
   }
 
   function removeLock(id) {
     Store.locks.remove(id);
     loadLocks();
-    App.toast('Slot unlocked.', 'info');
+    App.toast('Slot made available.', 'info');
   }
 
   function bindEvents() {
@@ -227,33 +227,35 @@ const UIDashboard = (() => {
       const day = document.getElementById('lockDay').value;
       const slotIdx = parseInt(document.getElementById('lockSlot').value);
       if (!day) return;
-      // Check for duplicate
+      // Check for duplicate unavailable slot
       const existing = Store.locks.getAll().find(l => l.day === day && l.slotIdx === slotIdx);
-      if (existing) { App.toast('Slot already locked.', 'error'); return; }
+      if (existing) { App.toast('Slot is already unavailable.', 'error'); return; }
       Store.locks.add({ day, slotIdx });
       loadLocks();
-      App.toast('Slot locked.', 'success');
+      App.toast('Slot marked unavailable.', 'success');
     });
   }
 
   function runGeneration() {
-    // Validate minimum data
-    if (Store.courses.count() === 0) { App.toast('Add at least one course first.', 'error'); return; }
-    if (Store.sections.count() === 0) { App.toast('Add at least one section first.', 'error'); return; }
-    if (Store.faculty.count() === 0) { App.toast('Add at least one faculty mapping first.', 'error'); return; }
-    if (Store.rooms.count() === 0) { App.toast('Add at least one room first.', 'error'); return; }
-
     const btn = document.getElementById('btnGenerate');
     btn.disabled = true;
     btn.innerHTML = '<span>Generating…</span>';
 
-    setTimeout(() => {
+    setTimeout(async () => {
       const result = Generator.generate();
+      let saveResponse = null;
+      let saveError = null;
+      if (result.status === 'complete') {
+        try {
+          saveResponse = await API.pushAll({ timetableStatus: 'complete' });
+          if (saveResponse?.revision !== undefined) localStorage.setItem('tt_revision', String(saveResponse.revision));
+        } catch (e) {
+          saveError = e;
+        }
+      }
+
       btn.disabled = false;
-      btn.innerHTML = `
-        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-        Generate Timetable
-      `;
+      btn.innerHTML = `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="16" height="16"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> Generate Timetable`;
 
       // Show result
       const content = document.getElementById('genResultContent');
@@ -279,8 +281,10 @@ const UIDashboard = (() => {
           <div style="height:100%;border-radius:20px;background:var(--indigo-500);transition:width .4s ease" style="width:${result.stats.total > 0 ? Math.round(result.stats.placed / result.stats.total * 100) : 0}%"></div>
         </div>
         <p style="font-size:.8rem;color:var(--text-muted);margin-top:var(--sp-xs)">
-          ${result.stats.total > 0 ? Math.round(result.stats.placed / result.stats.total * 100) : 0}% placement rate
+          Status: ${result.status.toUpperCase()} · ${result.stats.total > 0 ? Math.round(result.stats.placed / result.stats.total * 100) : 0}% placement rate
           ${result.stats.backtrackResolved > 0 ? ` · ${result.stats.backtrackResolved} rescued by backtracking` : ''}
+          ${result.status !== 'complete' ? ' · Preview only — not saved' : ''}
+          ${saveError ? ' · Save failed — previous timetable preserved' : ''}
         </p>
       `;
 
@@ -301,17 +305,21 @@ const UIDashboard = (() => {
 
       updateStats();
 
-      // Health score
-      document.getElementById('healthScoreContent').innerHTML = HealthScore.renderCard(result.timetable, result.stats);
+      const displayTimetable = result.status === 'complete' ? result.timetable : result.previewTimetable;
+      document.getElementById('healthScoreContent').innerHTML = displayTimetable ? HealthScore.renderCard(displayTimetable, result.stats) : '<p style="font-size:.85rem;color:var(--text-muted)">No valid timetable was generated.</p>';
 
-      // Auto-save version
-      Versions.save(result.timetable, result.stats);
-      Versions.renderPanel();
-
-      if (result.stats.unplaced === 0 && result.conflicts.length === 0) {
-        App.toast('Timetable generated successfully — no conflicts!', 'success');
+      if (result.status === 'complete' && !saveError) {
+        Versions.save(result.timetable, result.stats);
+        Versions.renderPanel();
+        App.toast('Timetable generated and saved successfully.', 'success');
+      } else if (saveError) {
+        App.toast(saveError.message || 'Save failed. The previous timetable was preserved.', 'error');
+      } else if (result.status === 'blocked') {
+        App.toast('Generation blocked. Complete the missing setup items first.', 'error');
+      } else if (result.status === 'partial') {
+        App.toast('The timetable could not be completed. Existing saved timetable was not changed.', 'warning');
       } else {
-        App.toast(`Timetable generated with ${result.conflicts.length} issue(s).`, 'warning');
+        App.toast('Generated timetable failed validation. Existing saved timetable was not changed.', 'error');
       }
     }, 300);
   }

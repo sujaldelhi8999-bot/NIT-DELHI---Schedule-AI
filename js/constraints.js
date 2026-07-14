@@ -93,7 +93,7 @@ const Constraints = (() => {
 
       // Locked? (H8)
       if (isSlotLocked(day, si, assignment.facultyId)) {
-        return { ok: false, reason: `Slot ${slots[si].start} on ${day} is marked unavailable.` };
+        return { ok: false, reason: `Slot ${slots[si].start} on ${day} is unavailable for scheduling.` };
       }
 
       const existing = getEntriesAt(timetable, day, si);
@@ -192,13 +192,95 @@ const Constraints = (() => {
     );
   }
 
+  function makeError(code, message, entryIds = [], details = {}) {
+    return { code, message, entryIds, details };
+  }
+
   function validateTimetable(timetable) {
-    const conflicts = [];
+    const errors = [];
+    const warnings = [];
     const slots = Store.computeTimeSlots();
     const settings = Store.getSettings();
     const days = settings.daysOfWeek;
     const periodDuration = settings.periodDuration || 60;
     const slotHours = periodDuration / 60;
+    const validDays = new Set(days || []);
+    const seenIds = new Set();
+    const courses = Store.courses.getAll();
+    const faculty = Store.faculty.getAll();
+    const rooms = Store.rooms.getAll();
+    const sections = Store.sections.getAll();
+    const combined = Store.combined.getAll();
+
+    const courseMap = Object.fromEntries(courses.map(c => [c.id, c]));
+    const facultyMap = Object.fromEntries(faculty.map(f => [f.id, f]));
+    const roomMap = Object.fromEntries(rooms.map(r => [r.id, r]));
+    const sectionMap = Object.fromEntries(sections.map(s => [s.id, s]));
+    const combinedMap = Object.fromEntries(combined.map(c => [c.id, c]));
+
+    const allEntries = [];
+    for (const day of Object.keys(timetable || {})) {
+      for (const e of timetable[day] || []) allEntries.push({ ...e, day: e.day || day });
+    }
+
+    for (const e of allEntries) {
+      if (!e.id) {
+        errors.push(makeError('MISSING_ENTRY_ID', 'A timetable entry is missing an id.'));
+      } else if (seenIds.has(e.id)) {
+        errors.push(makeError('DUPLICATE_TIMETABLE_ENTRY', `Duplicate timetable entry ${e.id}.`, [e.id]));
+      }
+      seenIds.add(e.id);
+
+      if (!validDays.has(e.day)) errors.push(makeError('INVALID_DAY', `Entry ${e.id} uses invalid day ${e.day}.`, [e.id], { day: e.day }));
+      if (!Number.isInteger(e.slotIdx) || e.slotIdx < 0 || e.slotIdx >= slots.length) {
+        errors.push(makeError('INVALID_PERIOD', `Entry ${e.id} uses invalid period ${e.slotIdx}.`, [e.id], { slotIdx: e.slotIdx }));
+      }
+      const requiredSlots = e.requiredSlots || 1;
+      if (!Number.isInteger(requiredSlots) || requiredSlots < 1 || e.slotIdx + requiredSlots > slots.length) {
+        errors.push(makeError('INVALID_BLOCK_LENGTH', `Entry ${e.id} has an invalid block length.`, [e.id], { requiredSlots }));
+      }
+
+      const course = courseMap[e.courseId];
+      const fac = facultyMap[e.facultyId];
+      const room = e.roomId ? roomMap[e.roomId] : null;
+      if (!course) errors.push(makeError('MISSING_COURSE', `Entry ${e.id} references a missing course.`, [e.id], { courseId: e.courseId }));
+      if (!fac) errors.push(makeError('MISSING_FACULTY', `Entry ${e.id} references a missing faculty mapping.`, [e.id], { facultyId: e.facultyId }));
+      if (e.roomId && !room) errors.push(makeError('MISSING_ROOM', `Entry ${e.id} references a missing room.`, [e.id], { roomId: e.roomId }));
+      if (!Array.isArray(e.sectionIds) || e.sectionIds.length === 0) {
+        errors.push(makeError('MISSING_ENTRY_SECTIONS', `Entry ${e.id} has no assigned sections.`, [e.id]));
+      }
+      const entrySections = new Set();
+      for (const sid of e.sectionIds || []) {
+        if (entrySections.has(sid)) errors.push(makeError('DUPLICATE_ENTRY_SECTION', `Entry ${e.id} contains duplicate section ${sid}.`, [e.id], { sectionId: sid }));
+        entrySections.add(sid);
+        if (!sectionMap[sid]) errors.push(makeError('MISSING_SECTION', `Entry ${e.id} references missing section ${sid}.`, [e.id], { sectionId: sid }));
+      }
+      if (e.isCombined && fac?.combinedId && !combinedMap[fac.combinedId]) {
+        errors.push(makeError('MISSING_COMBINED_CLASS', `Entry ${e.id} references a missing combined class.`, [e.id], { combinedId: fac.combinedId }));
+      }
+
+      for (let i = 0; i < requiredSlots; i++) {
+        const slot = slots[e.slotIdx + i];
+        if (!slot) continue;
+        if (slot.isLunch) errors.push(makeError('BREAK_PERIOD_USED', `Entry ${e.id} overlaps a break on ${e.day}.`, [e.id]));
+        if (isSlotLocked(e.day, e.slotIdx + i, e.facultyId)) {
+          errors.push(makeError('UNAVAILABLE_SLOT_USED', `Entry ${e.id} uses an unavailable slot.`, [e.id], { day: e.day, slotIdx: e.slotIdx + i }));
+        }
+      }
+
+      if (room) {
+        const totalStudents = Store.totalStudents(e.sectionIds || []);
+        if (room.capacity < totalStudents) {
+          errors.push(makeError('ROOM_CAPACITY_EXCEEDED', `Room ${room.name} cannot hold the assigned sections.`, [e.id], { capacity: room.capacity, students: totalStudents }));
+        }
+        const requiredLabTypeId = e.type === 'lab' && course ? (course.labTypeId || '') : '';
+        if (e.type === 'lab' && !room.isLab) errors.push(makeError('LAB_ROOM_REQUIRED', `Lab entry ${e.id} is not in a lab room.`, [e.id]));
+        if (e.type !== 'lab' && room.isLab) errors.push(makeError('THEORY_IN_LAB_ROOM', `Theory entry ${e.id} is scheduled in a lab room.`, [e.id]));
+        if (e.type === 'lab' && requiredLabTypeId && room.labTypeId !== requiredLabTypeId) {
+          errors.push(makeError('LAB_TYPE_MISMATCH', `Lab entry ${e.id} uses an incompatible lab room.`, [e.id], { requiredLabTypeId, roomLabTypeId: room.labTypeId }));
+        }
+      }
+    }
 
     for (const day of days) {
       const entries = timetable[day] || [];
@@ -211,7 +293,7 @@ const Constraints = (() => {
         const facMap = {};
         for (const e of atSlot) {
           if (facMap[e.facultyId]) {
-            conflicts.push({ type: 'error', message: `Faculty ${e.facultyName} double-booked on ${day} at ${slots[si].start}.` });
+            errors.push(makeError('FACULTY_CONFLICT', `Faculty ${e.facultyName} double-booked on ${day} at ${slots[si].start}.`, [e.id]));
           }
           facMap[e.facultyId] = true;
         }
@@ -220,7 +302,7 @@ const Constraints = (() => {
         for (const e of atSlot) {
           if (e.roomId && roomMap[e.roomId]) {
             const room = Store.rooms.get(e.roomId);
-            conflicts.push({ type: 'error', message: `Room ${room?.name || e.roomId} double-booked on ${day} at ${slots[si].start}.` });
+            errors.push(makeError('ROOM_CONFLICT', `Room ${room?.name || e.roomId} double-booked on ${day} at ${slots[si].start}.`, [e.id]));
           }
           if (e.roomId) roomMap[e.roomId] = true;
         }
@@ -230,14 +312,14 @@ const Constraints = (() => {
           for (const sid of (e.sectionIds || [])) {
             if (secMap[sid]) {
               const sec = Store.sections.get(sid);
-              conflicts.push({ type: 'error', message: `Section ${sec?.name || sid} overlapping on ${day} at ${slots[si].start}.` });
+              errors.push(makeError('SECTION_CONFLICT', `Section ${sec?.name || sid} overlapping on ${day} at ${slots[si].start}.`, [e.id], { sectionId: sid }));
             }
             secMap[sid] = true;
           }
         }
 
         if (slots[si].isLunch && atSlot.length > 0) {
-          conflicts.push({ type: 'error', message: `Class during lunch on ${day} at ${slots[si].start}.` });
+          errors.push(makeError('BREAK_PERIOD_USED', `Class during lunch on ${day} at ${slots[si].start}.`, atSlot.map(e => e.id)));
         }
       }
       
@@ -254,7 +336,7 @@ const Constraints = (() => {
       for(const sid in secLabs) {
           if (secLabs[sid] > maxLabs) {
               const sec = Store.sections.get(sid);
-              conflicts.push({ type: 'error', message: `Section ${sec?.name || sid} has more than ${maxLabs} lab sessions on ${day}.`});
+              errors.push(makeError('MAX_LABS_PER_DAY_EXCEEDED', `Section ${sec?.name || sid} has more than ${maxLabs} lab sessions on ${day}.`, [], { sectionId: sid, day }));
           }
       }
     }
@@ -276,17 +358,84 @@ const Constraints = (() => {
         
         for (const fid in facHoursD[day]) {
             if (facHoursD[day][fid] > maxD) {
-                conflicts.push({ type: 'error', message: `Faculty limits exceeded: Daily max > ${maxD} hrs on ${day}.` });
+                errors.push(makeError('FACULTY_DAILY_LIMIT_EXCEEDED', `Faculty limits exceeded: Daily max > ${maxD} hrs on ${day}.`, [], { facultyId: fid, day }));
             }
         }
     }
     for (const fid in facHoursW) {
         if (facHoursW[fid] > maxW) {
-            conflicts.push({ type: 'error', message: `Faculty limits exceeded: Weekly max > ${maxW} hrs.` });
+            errors.push(makeError('FACULTY_WEEKLY_LIMIT_EXCEEDED', `Faculty limits exceeded: Weekly max > ${maxW} hrs.`, [], { facultyId: fid }));
         }
     }
 
-    return conflicts;
+    validateRequiredPeriods(timetable, errors);
+
+    return { valid: errors.length === 0, errors, warnings };
+  }
+
+  function validateRequiredPeriods(timetable, errors) {
+    const expected = new Map();
+    const actual = new Map();
+    const courses = Store.courses.getAll();
+    const combined = Store.combined.getAll();
+    const faculty = Store.faculty.getAll();
+
+    function key(courseId, facultyId, sectionIds, type) {
+      return [courseId, facultyId, [...sectionIds].sort().join('+'), type].join('|');
+    }
+    function addExpected(k, sessions, slotsPerSession) {
+      const cur = expected.get(k) || { sessions: 0, periods: 0 };
+      cur.sessions += sessions;
+      cur.periods += sessions * slotsPerSession;
+      expected.set(k, cur);
+    }
+
+    for (const fm of faculty) {
+      const course = courses.find(c => c.id === fm.courseId);
+      if (!course) continue;
+      const sectionGroups = [];
+      if (fm.isCombined) {
+        const combo = combined.find(c => c.id === fm.combinedId);
+        if (combo) sectionGroups.push(combo.sectionIds || []);
+      } else {
+        (fm.sectionIds || []).forEach(sid => sectionGroups.push([sid]));
+      }
+      for (const sids of sectionGroups) {
+        if ((course.theoryHours || 0) > 0) addExpected(key(course.id, fm.id, sids, 'theory'), course.theoryHours, course.theoryPeriods || 1);
+        if ((course.labHours || 0) > 0) addExpected(key(course.id, fm.id, sids, 'lab'), Math.ceil(course.labHours / (course.labPeriods || 2)), course.labPeriods || 2);
+      }
+    }
+
+    for (const entries of Object.values(timetable || {})) {
+      for (const e of entries || []) {
+        const k = key(e.courseId, e.facultyId, e.sectionIds || [], e.type || 'theory');
+        const cur = actual.get(k) || { sessions: 0, periods: 0, entryIds: [] };
+        cur.sessions += 1;
+        cur.periods += e.requiredSlots || 1;
+        cur.entryIds.push(e.id);
+        actual.set(k, cur);
+        if (e.type === 'lab') {
+          const course = Store.courses.get(e.courseId);
+          const expectedLen = course?.labPeriods || e.requiredSlots || 1;
+          if ((e.requiredSlots || 1) !== expectedLen) {
+            errors.push(makeError('LAB_BLOCK_INCOMPLETE', `Lab entry ${e.id} does not match the required lab block length.`, [e.id], { expected: expectedLen, actual: e.requiredSlots || 1 }));
+          }
+        }
+      }
+    }
+
+    for (const [k, exp] of expected) {
+      const act = actual.get(k) || { sessions: 0, periods: 0, entryIds: [] };
+      if (act.periods < exp.periods || act.sessions < exp.sessions) {
+        errors.push(makeError('REQUIRED_PERIODS_MISSING', 'A required course/faculty/section assignment is missing scheduled periods.', act.entryIds, { key: k, expected: exp, actual: act }));
+      }
+    }
+    for (const [k, act] of actual) {
+      const exp = expected.get(k);
+      if (!exp || act.periods > exp.periods || act.sessions > exp.sessions) {
+        errors.push(makeError('EXTRA_PERIODS_SCHEDULED', 'Unexpected extra periods were scheduled.', act.entryIds, { key: k, expected: exp || null, actual: act }));
+      }
+    }
   }
 
   return { canPlace, findRoom, getEntriesAt, isSlotLocked, validateTimetable };
