@@ -60,6 +60,10 @@ const API = (() => {
       throw new Error('Session expired');
     }
     if (!res.ok) {
+      if ((res.status === 404 || res.status === 405) && url.startsWith('/api/')) {
+        _offlineMode = true;
+        throw new Error('SERVER_OFFLINE');
+      }
       const err = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(err.error || 'Request failed');
     }
