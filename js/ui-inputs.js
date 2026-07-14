@@ -5,6 +5,7 @@
 const UIInputs = (() => {
 
   function render() {
+    ensureDefaultLabTypes();
     const page = document.getElementById('page-inputs');
     page.innerHTML = `
       <div class="page-header">
@@ -225,6 +226,11 @@ const UIInputs = (() => {
     loadCombined();
     loadSettings();
     bindAdd();
+  }
+
+  function ensureDefaultLabTypes() {
+    const hasCsLab = Store.labTypes.getAll().some(lt => (lt.name || '').trim().toLowerCase() === 'cs lab');
+    if (!hasCsLab) Store.labTypes.add({ id: 'cs-lab', name: 'CS Lab' });
   }
 
   /* ---- TABS ---- */
