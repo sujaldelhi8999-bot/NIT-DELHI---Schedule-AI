@@ -15,6 +15,7 @@ const Store = (() => {
     locks:      'tt_locks',
     conflicts:  'tt_conflicts',
   };
+  const BACKUP_KEY = 'tt_auto_backup';
 
   const defaults = {
     settings: {
@@ -34,12 +35,32 @@ const Store = (() => {
   function _get(key) {
     try {
       const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : null;
+      if (raw) return JSON.parse(raw);
+      return _restoreFromBackup(key);
     } catch { return null; }
   }
   function _set(key, val) {
     localStorage.setItem(key, JSON.stringify(val));
+    _saveBackup(key, val);
     window.dispatchEvent(new CustomEvent('store-change', { detail: { key } }));
+  }
+
+  function _saveBackup(key, val) {
+    try {
+      const backup = JSON.parse(localStorage.getItem(BACKUP_KEY) || '{}');
+      backup[key] = val;
+      backup.updatedAt = new Date().toISOString();
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(backup));
+    } catch {}
+  }
+
+  function _restoreFromBackup(key) {
+    try {
+      const backup = JSON.parse(localStorage.getItem(BACKUP_KEY) || '{}');
+      if (!Object.prototype.hasOwnProperty.call(backup, key)) return null;
+      localStorage.setItem(key, JSON.stringify(backup[key]));
+      return backup[key];
+    } catch { return null; }
   }
 
   function uid() {
