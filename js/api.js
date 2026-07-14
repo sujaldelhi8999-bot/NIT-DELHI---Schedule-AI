@@ -6,6 +6,7 @@
 
 const API = (() => {
   const BASE = '';
+  const STATIC_DEMO = window.location.hostname.endsWith('github.io');
   let _offlineMode = false;
 
   /* ---- Auth helpers ---- */
@@ -31,6 +32,10 @@ const API = (() => {
 
   /* ---- HTTP request with 6s timeout ---- */
   async function request(method, url, body, timeoutMs = 6000) {
+    if (STATIC_DEMO && url.startsWith('/api/')) {
+      _offlineMode = true;
+      throw new Error('SERVER_OFFLINE');
+    }
     if (_offlineMode) throw new Error('offline');
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     const token = getToken();
@@ -60,7 +65,7 @@ const API = (() => {
       throw new Error('Session expired');
     }
     if (!res.ok) {
-      if ((res.status === 404 || res.status === 405) && url.startsWith('/api/')) {
+      if (url.startsWith('/api/')) {
         _offlineMode = true;
         throw new Error('SERVER_OFFLINE');
       }
